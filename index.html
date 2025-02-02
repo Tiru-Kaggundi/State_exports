@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Exports Visualization</title>
+
+  <!-- Load PyScript -->
+  <script defer src="https://pyscript.net/latest/pyscript.js"></script>
+
+  <!-- (Optional) Basic styling -->
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 20px;
+    }
+    select {
+      margin-bottom: 1rem;
+      padding: 0.2rem;
+    }
+    #table {
+      margin-top: 1rem;
+    }
+    #map {
+      margin-top: 1rem;
+    }
+  </style>
+</head>
+<body>
+
+<h2>Exports Dashboard</h2>
+
+<py-config>
+  packages = ["pandas", "plotly"]
+</py-config>
+
+<py-script>
+import pandas as pd
+import plotly.express as px
+import plotly.io as pio
+
+# Update the CSV file name
+df = pd.read_csv("state_exp_by_ports_and_countries.csv")
+
+states = sorted(df["State"].unique())
+
+def get_top_20_by_state(state):
+    subset = df[df["State"] == state]
+    grouped = (
+        subset.groupby("Country", as_index=False)
+        .agg({"AM24_INR": "sum", "AM24_USD": "sum"})
+    )
+    top_20 = grouped.sort_values("AM24_USD", ascending=False).head(20)
+    table_html = top_20.to_html(index=False)
+
+    fig = px.scatter_geo(
+        top_20,
+        locations="Country",
+        locationmode="country names",
+        hover_name="Country",
+        size="AM24_USD",
+        color="AM24_USD",
+        projection="natural earth",
+        title=f"Top 20 Destinations from {state}"
+    )
+    map_html = pio.to_html(fig, full_html=False, include_plotlyjs="cdn")
+    return table_html, map_html
+
+state_list = states
+</py-script>
+
+<select id="state-dropdown" onchange="updateView()"></select>
+<div id="table"></div>
+<div id="map"></div>
+
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  let states = pyodide.globals.get("state_list").toJs();
+  let dropdown = document.getElementById("state-dropdown");
+  states.forEach(s => {
+    let opt = document.createElement("option");
+    opt.value = s;
+    opt.textContent = s;
+    dropdown.appendChild(opt);
+  });
+  updateView();
+});
+
+async function updateView() {
+  let state = document.getElementById("state-dropdown").value;
+  let pyFunc = pyodide.globals.get("get_top_20_by_state");
+  let [tableHtml, mapHtml] = await pyFunc(state).toJs();
+  document.getElementById("table").innerHTML = tableHtml;
+  document.getElementById("map").innerHTML = mapHtml;
+}
+</script>
+
+</body>
+</html>
