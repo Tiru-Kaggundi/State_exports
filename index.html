@@ -94,19 +94,15 @@ asyncio.ensure_future(main())
 <div id="map"></div>
 
 <script>
-(async () => {
-  console.log("JS: Waiting for pyodide...");
-  // Wait until the Pyodide runtime is available.
-  while (typeof pyodide === "undefined") {
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-  console.log("JS: pyodide is available.");
-
-  // Log the keys in the global namespace for debugging.
+// Use the "pyready" event to run JS code once Python is ready.
+window.addEventListener("pyready", async () => {
+  console.log("JS: pyready event triggered.");
+  
+  // Log the keys from the Python globals for debugging.
   const globalKeys = Object.keys(pyodide.globals.toJs());
   console.log("JS: pyodide.globals keys:", globalKeys);
-
-  // Next, poll until the Python global 'state_list' is defined.
+  
+  // Poll for the Python global 'state_list'.
   let states = null;
   let attempts = 0;
   while (attempts < 50) {
@@ -143,7 +139,7 @@ asyncio.ensure_future(main())
     dropdown.selectedIndex = 0;
   }
   updateView();
-})();
+});
 
 async function updateView() {
   const state = document.getElementById("state-dropdown").value;
