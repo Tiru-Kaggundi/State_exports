@@ -51,7 +51,7 @@ async def load_csv():
     return pd.read_csv(io.StringIO(csv_text))
 
 def get_top_20_by_state(state):
-    # Use the cleaned column names.
+    # Filter using the cleaned column name.
     subset = df[df["State"] == state]
     grouped = subset.groupby("Country", as_index=False).agg({"AM24_INR": "sum", "AM24_USD": "sum"})
     top_20 = grouped.sort_values("AM24_USD", ascending=False).head(20)
@@ -74,7 +74,7 @@ async def main():
     global df, state_list
     try:
         df = await load_csv()
-        # Strip whitespace from all column names to avoid header issues.
+        # Strip whitespace from column names to ensure they match exactly.
         df.columns = df.columns.str.strip()
         print("CSV loaded successfully. DataFrame head:")
         print(df.head())
@@ -83,7 +83,7 @@ async def main():
     except Exception as e:
         print("Error in main:", e)
 
-# Schedule the main() coroutine.
+# Schedule the main() coroutine so it runs asynchronously.
 asyncio.ensure_future(main())
 </py-script>
 
@@ -92,26 +92,27 @@ asyncio.ensure_future(main())
 <div id="map"></div>
 
 <script>
-window.addEventListener("pyready", async () => {
+// Immediately-invoked async function to poll for 'state_list' and populate the dropdown.
+(async () => {
   let states = null;
-  // Poll until the Python variable "state_list" is available.
-  while ((states = pyodide.globals.get("state_list")) === null) {
+  // Poll every 100ms until 'state_list' is available from Python.
+  while (!(states = pyodide.globals.get("state_list"))) {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   states = states.toJs();
-  let dropdown = document.getElementById("state-dropdown");
+  const dropdown = document.getElementById("state-dropdown");
   states.forEach(s => {
-    let opt = document.createElement("option");
+    const opt = document.createElement("option");
     opt.value = s;
     opt.textContent = s;
     dropdown.appendChild(opt);
   });
   updateView();
-});
+})();
 
 async function updateView() {
-  let state = document.getElementById("state-dropdown").value;
-  let pyFunc = pyodide.globals.get("get_top_20_by_state");
+  const state = document.getElementById("state-dropdown").value;
+  const pyFunc = pyodide.globals.get("get_top_20_by_state");
   let [tableHtml, mapHtml] = await pyFunc(state).toJs();
   document.getElementById("table").innerHTML = tableHtml;
   document.getElementById("map").innerHTML = mapHtml;
