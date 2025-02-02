@@ -4,8 +4,9 @@
   <meta charset="UTF-8" />
   <title>Exports Visualization</title>
 
-  <!-- Load PyScript -->
-  <script defer src="https://pyscript.net/latest/pyscript.js"></script>
+  <!-- Load PyScript CSS and JS with CORS enabled -->
+  <link rel="stylesheet" href="https://pyscript.net/latest/pyscript.css" crossorigin="anonymous" />
+  <script defer src="https://pyscript.net/latest/pyscript.js" crossorigin="anonymous"></script>
 
   <!-- (Optional) Basic styling -->
   <style>
@@ -73,7 +74,7 @@ state_list = states
 <div id="map"></div>
 
 <script>
-document.addEventListener("DOMContentLoaded", () => {
+window.addEventListener("pyready", () => {
   let states = pyodide.globals.get("state_list").toJs();
   let dropdown = document.getElementById("state-dropdown");
   states.forEach(s => {
