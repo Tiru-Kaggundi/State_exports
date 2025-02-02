@@ -4,9 +4,12 @@
   <meta charset="UTF-8" />
   <title>Exports Visualization</title>
 
-  <!-- Load PyScript CSS and JS with versioned URLs and CORS enabled -->
+  <!-- Load PyScript CSS and JS -->
   <link rel="stylesheet" href="https://pyscript.net/releases/2022.12.1/pyscript.css" crossorigin="anonymous" />
   <script defer src="https://pyscript.net/releases/2022.12.1/pyscript.js" crossorigin="anonymous"></script>
+  
+  <!-- Include Plotly.js for map rendering -->
+  <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
 
   <style>
     body {
@@ -22,6 +25,8 @@
     }
     #map {
       margin-top: 1rem;
+      width: 100%;
+      height: 500px;
     }
   </style>
 </head>
@@ -29,102 +34,123 @@
 
 <h2>Exports Dashboard</h2>
 
-<!-- Python code: Install packages, load CSV, and export variables to JS via js.window -->
 <py-script>
 import asyncio
 import micropip
+import pandas as pd
+import plotly.express as px
+import plotly.io as pio
+from js import window, document
 
 async def main():
-    print("Python: Starting package installation...")
-    await micropip.install("pandas")
-    await micropip.install("plotly")
-    print("Python: Package installation complete.")
+    try:
+        print("Python: Starting package installation...")
+        await micropip.install("pandas")
+        await micropip.install("plotly")
+        print("Python: Package installation complete.")
 
-    import pandas as pd
-    import plotly.express as px
-    import plotly.io as pio
-    from pyodide.http import pyfetch
-    import io
-    import js
+        # Load CSV directly from web server
+        async def load_csv():
+            print("Python: Fetching CSV file...")
+            response = await window.fetch("state_exp_by_ports_and_countries.csv")
+            csv_text = await response.text()
+            
+            # Write to Pyodide's virtual filesystem
+            with open("data.csv", "w") as f:
+                f.write(csv_text)
+                
+            return pd.read_csv("data.csv")
 
-    async def load_csv():
-        print("Python: Fetching CSV file...")
-        response = await pyfetch("state_exp_by_ports_and_countries.csv")
-        csv_text = await response.string()
-        return pd.read_csv(io.StringIO(csv_text))
+        df = await load_csv()
+        df.columns = df.columns.str.strip()
+        state_list_local = sorted(df["State"].unique())
+        window.state_list = state_list_local
+        print("Python: Exported state_list to window:", state_list_local)
 
-    df = await load_csv()
-    # Clean up column names so they match exactly.
-    df.columns = df.columns.str.strip()
-    state_list_local = sorted(df["State"].unique())
-    # Export the state list to the JS global scope.
-    js.window.state_list = state_list_local
-    print("Python: Exported state_list to window:", state_list_local)
+        def get_top_20_by_state(state):
+            try:
+                subset = df[df["State"] == state]
+                grouped = subset.groupby("Country", as_index=False).agg({"AM24_INR": "sum", "AM24_USD": "sum"})
+                top_20 = grouped.sort_values("AM24_USD", ascending=False).head(20)
+                table_html = top_20.to_html(index=False)
+                
+                fig = px.scatter_geo(
+                    top_20,
+                    locations="Country",
+                    locationmode="country names",
+                    hover_name="Country",
+                    size="AM24_USD",
+                    color="AM24_USD",
+                    projection="natural earth",
+                    title=f"Top 20 Destinations from {state}"
+                )
+                map_html = pio.to_html(fig, full_html=False, include_plotlyjs="cdn")
+                return [table_html, map_html]
+            except Exception as e:
+                print(f"Python Error in get_top_20_by_state: {str(e)}")
+                return ["<div>Error loading data</div>", "<div>Error generating map</div>"]
 
-    def get_top_20_by_state(state):
-        subset = df[df["State"] == state]
-        grouped = subset.groupby("Country", as_index=False).agg({"AM24_INR": "sum", "AM24_USD": "sum"})
-        top_20 = grouped.sort_values("AM24_USD", ascending=False).head(20)
-        table_html = top_20.to_html(index=False)
-    
-        fig = px.scatter_geo(
-            top_20,
-            locations="Country",
-            locationmode="country names",
-            hover_name="Country",
-            size="AM24_USD",
-            color="AM24_USD",
-            projection="natural earth",
-            title=f"Top 20 Destinations from {state}"
-        )
-        map_html = pio.to_html(fig, full_html=False, include_plotlyjs="cdn")
-        return table_html, map_html
+        # Expose function to JavaScript with error handling
+        window.get_top_20_by_state = lambda state: get_top_20_by_state(state)
+        print("Python: Exported get_top_20_by_state to window.")
 
-    # Export the function to JS.
-    js.window.get_top_20_by_state = get_top_20_by_state
-    print("Python: Exported get_top_20_by_state to window.")
+    except Exception as e:
+        print(f"Python Main Error: {str(e)}")
+        document.getElementById("map").innerHTML = f"<div style='color:red'>Python Error: {str(e)}</div>"
 
 asyncio.ensure_future(main())
 </py-script>
 
-<!-- HTML elements for the dropdown and display areas -->
+<!-- Interface Elements -->
 <select id="state-dropdown" onchange="updateView()"></select>
 <div id="table"></div>
 <div id="map"></div>
 
-<!-- JavaScript: Poll for the exported variables and populate the dropdown -->
 <script>
 (async () => {
-  console.log("JS: Waiting for window.state_list...");
-  // Poll until the Python variable is exported to js.window.
-  while (!window.state_list) {
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-  console.log("JS: Found window.state_list:", window.state_list);
-  const states = window.state_list;
-  const dropdown = document.getElementById("state-dropdown");
-  dropdown.innerHTML = "";
-  states.forEach(s => {
-    const opt = document.createElement("option");
-    opt.value = s;
-    opt.textContent = s;
-    dropdown.appendChild(opt);
-  });
-  console.log("JS: Dropdown populated. Options count:", dropdown.options.length);
-  // Call updateView() to render the initial data.
-  updateView();
+    console.log("JS: Initializing...");
+    try {
+        // Wait for Python initialization
+        while (!window.state_list) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        
+        const dropdown = document.getElementById("state-dropdown");
+        dropdown.innerHTML = window.state_list
+            .map(state => `<option value="${state}">${state}</option>`)
+            .join("");
+            
+        updateView();
+    } catch (error) {
+        console.error("Initialization Error:", error);
+    }
 })();
 
 async function updateView() {
-  const state = document.getElementById("state-dropdown").value;
-  console.log("JS: updateView called with state:", state);
-  // Get the exported Python function from the window.
-  const pyFunc = window.get_top_20_by_state;
-  // Call the Python function (it returns a tuple: [table_html, map_html]).
-  let [tableHtml, mapHtml] = await pyFunc(state);
-  console.log("JS: Received table and map HTML from Python.");
-  document.getElementById("table").innerHTML = tableHtml;
-  document.getElementById("map").innerHTML = mapHtml;
+    try {
+        const state = document.getElementById("state-dropdown").value;
+        console.log("JS: Updating view for", state);
+        
+        if (!window.get_top_20_by_state) {
+            throw new Error("Python function not loaded");
+        }
+        
+        const [tableHtml, mapHtml] = await window.get_top_20_by_state(state);
+        document.getElementById("table").innerHTML = tableHtml;
+        document.getElementById("map").innerHTML = mapHtml;
+        
+        // Re-initialize Plotly if needed
+        if (mapHtml.includes("plotly")) {
+            window.Plotly.newPlot('map', JSON.parse(mapHtml.match(/{"data":.*?}/)[0]));
+        }
+    } catch (error) {
+        console.error("JS Error in updateView:", error);
+        document.getElementById("map").innerHTML = `
+            <div style="color: red; padding: 1rem; border: 1px solid red;">
+                Error: ${error.message}
+            </div>
+        `;
+    }
 }
 </script>
 
