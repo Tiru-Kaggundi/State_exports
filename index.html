@@ -51,7 +51,6 @@ async def load_csv():
     return pd.read_csv(io.StringIO(csv_text))
 
 def get_top_20_by_state(state):
-    # Filter using the cleaned column name.
     subset = df[df["State"] == state]
     grouped = subset.groupby("Country", as_index=False).agg({"AM24_INR": "sum", "AM24_USD": "sum"})
     top_20 = grouped.sort_values("AM24_USD", ascending=False).head(20)
@@ -74,7 +73,7 @@ async def main():
     global df, state_list
     try:
         df = await load_csv()
-        # Strip whitespace from column names to ensure they match exactly.
+        # Remove any extra whitespace from column names.
         df.columns = df.columns.str.strip()
         print("CSV loaded successfully. DataFrame head:")
         print(df.head())
@@ -83,7 +82,7 @@ async def main():
     except Exception as e:
         print("Error in main:", e)
 
-# Schedule the main() coroutine so it runs asynchronously.
+# Schedule main() to run asynchronously.
 asyncio.ensure_future(main())
 </py-script>
 
@@ -92,10 +91,13 @@ asyncio.ensure_future(main())
 <div id="map"></div>
 
 <script>
-// Immediately-invoked async function to poll for 'state_list' and populate the dropdown.
 (async () => {
+  // First, wait until the Pyodide runtime is available.
+  while (typeof pyodide === "undefined") {
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  // Then, poll until the Python variable 'state_list' is available.
   let states = null;
-  // Poll every 100ms until 'state_list' is available from Python.
   while (!(states = pyodide.globals.get("state_list"))) {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
