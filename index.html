@@ -41,10 +41,10 @@ import plotly.io as pio
 # Update the CSV file name
 df = pd.read_csv("state_exp_by_ports_and_countries.csv")
 
-states = sorted(df["State"].unique())
+states = sorted(df["State "].unique())
 
 def get_top_20_by_state(state):
-    subset = df[df["State"] == state]
+    subset = df[df["State "] == state]
     grouped = (
         subset.groupby("Country", as_index=False)
         .agg({"AM24_INR": "sum", "AM24_USD": "sum"})
