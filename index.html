@@ -7,7 +7,7 @@
   <!-- Load PyScript CSS and JS with versioned URLs and CORS enabled -->
   <link rel="stylesheet" href="https://pyscript.net/releases/2022.12.1/pyscript.css" crossorigin="anonymous" />
   <script defer src="https://pyscript.net/releases/2022.12.1/pyscript.js" crossorigin="anonymous"></script>
-
+  
   <style>
     body {
       font-family: sans-serif;
@@ -29,35 +29,37 @@
 
 <h2>Exports Dashboard</h2>
 
-<!-- Note: We omit the <py-config> block since we are installing packages manually -->
+<!-- We no longer use the <py-config> block because we install packages manually -->
 <py-script>
 import asyncio
+import micropip
 
 async def main():
-    # Install packages using micropip
-    import micropip
+    # Install required packages
     await micropip.install("pandas")
     await micropip.install("plotly")
     
-    # Now that packages are installed, import them
     import pandas as pd
     import plotly.express as px
     import plotly.io as pio
     from pyodide.http import pyfetch
     import io
 
-    # Define globals for later access from JavaScript.
+    # Define globals for later access.
     global df, state_list, get_top_20_by_state
 
     async def load_csv():
         response = await pyfetch("state_exp_by_ports_and_countries.csv")
         csv_text = await response.string()
         return pd.read_csv(io.StringIO(csv_text))
-
+    
     df = await load_csv()
-    # Remove extra whitespace from column names so filtering works reliably.
+    # Clean up column names to avoid whitespace issues.
     df.columns = df.columns.str.strip()
-    state_list = sorted(df["State"].unique())
+    state_list_local = sorted(df["State"].unique())
+    
+    # Explicitly export state_list so that JavaScript can access it.
+    globals()["state_list"] = state_list_local
 
     def get_top_20_by_state(state):
         subset = df[df["State"] == state]
@@ -77,14 +79,15 @@ async def main():
         )
         map_html = pio.to_html(fig, full_html=False, include_plotlyjs="cdn")
         return table_html, map_html
-
-    # Expose the function to the global namespace so that JavaScript can call it.
+    
+    # Export the function to the global namespace.
     globals()["get_top_20_by_state"] = get_top_20_by_state
-
+    
     print("CSV loaded successfully. DataFrame head:")
     print(df.head())
-    print("State list:", state_list)
+    print("State list:", state_list_local)
 
+# Schedule the main() coroutine.
 asyncio.ensure_future(main())
 </py-script>
 
@@ -93,15 +96,20 @@ asyncio.ensure_future(main())
 <div id="map"></div>
 
 <script>
-// Wait for Pyodide to be available before accessing globals.
 (async () => {
-  // First, poll until 'pyodide' is defined.
+  // First, wait until the Pyodide runtime is available.
   while (typeof pyodide === "undefined") {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
-  // Next, poll until the Python global 'state_list' is set.
-  let states = null;
-  while (!(states = pyodide.globals.get("state_list"))) {
+  // Next, wait until the Python variable 'state_list' is defined.
+  let states;
+  while (true) {
+    try {
+      states = pyodide.globals.get("state_list");
+      if (states) break;
+    } catch(e) {
+      // Ignore any errors while polling.
+    }
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   states = states.toJs();
