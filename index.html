@@ -38,9 +38,17 @@
 import pandas as pd
 import plotly.express as px
 import plotly.io as pio
+from pyodide.http import pyfetch
+import io
 
-# Update the CSV file name
-df = pd.read_csv("state_exp_by_ports_and_countries.csv")
+# Asynchronously load the CSV file using pyfetch.
+async def load_csv():
+    response = await pyfetch("state_exp_by_ports_and_countries.csv")
+    csv_text = await response.string()
+    return pd.read_csv(io.StringIO(csv_text))
+
+# Await the CSV load so that 'df' is available.
+df = await load_csv()
 
 states = sorted(df["State "].unique())
 
