@@ -40,17 +40,16 @@ import plotly.express as px
 import plotly.io as pio
 from pyodide.http import pyfetch
 import io
+import asyncio
 
-# Asynchronously load the CSV file using pyfetch.
+# Global variables that will be updated by our async code.
+df = None
+state_list = None
+
 async def load_csv():
     response = await pyfetch("state_exp_by_ports_and_countries.csv")
     csv_text = await response.string()
     return pd.read_csv(io.StringIO(csv_text))
-
-# Await the CSV load so that 'df' is available.
-df = await load_csv()
-
-states = sorted(df["State "].unique())
 
 def get_top_20_by_state(state):
     subset = df[df["State "] == state]
@@ -74,7 +73,13 @@ def get_top_20_by_state(state):
     map_html = pio.to_html(fig, full_html=False, include_plotlyjs="cdn")
     return table_html, map_html
 
-state_list = states
+async def main():
+    global df, state_list
+    df = await load_csv()
+    state_list = sorted(df["State "].unique())
+
+# Schedule the main() coroutine so that it runs asynchronously.
+asyncio.ensure_future(main())
 </py-script>
 
 <select id="state-dropdown" onchange="updateView()"></select>
@@ -82,8 +87,14 @@ state_list = states
 <div id="map"></div>
 
 <script>
-window.addEventListener("pyready", () => {
-  let states = pyodide.globals.get("state_list").toJs();
+// Wait for PyScript to be ready.
+window.addEventListener("pyready", async () => {
+  let states = null;
+  // Poll every 100ms until 'state_list' is available.
+  while ((states = pyodide.globals.get("state_list")) === null) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  states = states.toJs();
   let dropdown = document.getElementById("state-dropdown");
   states.forEach(s => {
     let opt = document.createElement("option");
