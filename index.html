@@ -29,99 +29,100 @@
 
 <h2>Exports Dashboard</h2>
 
-<!-- Place the dropdown and container elements before the PyScript block so that they are present when called -->
+<!-- Note: We omit the <py-config> block since we are installing packages manually -->
+<py-script>
+import asyncio
+
+async def main():
+    # Install packages using micropip
+    import micropip
+    await micropip.install("pandas")
+    await micropip.install("plotly")
+    
+    # Now that packages are installed, import them
+    import pandas as pd
+    import plotly.express as px
+    import plotly.io as pio
+    from pyodide.http import pyfetch
+    import io
+
+    # Define globals for later access from JavaScript.
+    global df, state_list, get_top_20_by_state
+
+    async def load_csv():
+        response = await pyfetch("state_exp_by_ports_and_countries.csv")
+        csv_text = await response.string()
+        return pd.read_csv(io.StringIO(csv_text))
+
+    df = await load_csv()
+    # Remove extra whitespace from column names so filtering works reliably.
+    df.columns = df.columns.str.strip()
+    state_list = sorted(df["State"].unique())
+
+    def get_top_20_by_state(state):
+        subset = df[df["State"] == state]
+        grouped = subset.groupby("Country", as_index=False).agg({"AM24_INR": "sum", "AM24_USD": "sum"})
+        top_20 = grouped.sort_values("AM24_USD", ascending=False).head(20)
+        table_html = top_20.to_html(index=False)
+    
+        fig = px.scatter_geo(
+            top_20,
+            locations="Country",
+            locationmode="country names",
+            hover_name="Country",
+            size="AM24_USD",
+            color="AM24_USD",
+            projection="natural earth",
+            title=f"Top 20 Destinations from {state}"
+        )
+        map_html = pio.to_html(fig, full_html=False, include_plotlyjs="cdn")
+        return table_html, map_html
+
+    # Expose the function to the global namespace so that JavaScript can call it.
+    globals()["get_top_20_by_state"] = get_top_20_by_state
+
+    print("CSV loaded successfully. DataFrame head:")
+    print(df.head())
+    print("State list:", state_list)
+
+asyncio.ensure_future(main())
+</py-script>
+
 <select id="state-dropdown" onchange="updateView()"></select>
 <div id="table"></div>
 <div id="map"></div>
 
-<!-- Define JavaScript functions that Python can call -->
 <script>
-  // This function populates the dropdown using the state list provided from Python.
-  function populateDropdown(states) {
-    // Convert the PyProxy (Python list) to a JavaScript array.
-    const stateArray = states.toJs();
-    const dropdown = document.getElementById("state-dropdown");
-    // Clear any existing options.
-    dropdown.innerHTML = "";
-    // Populate the dropdown.
-    stateArray.forEach(s => {
-      const opt = document.createElement("option");
-      opt.value = s;
-      opt.textContent = s;
-      dropdown.appendChild(opt);
-    });
-    // Once populated, call updateView to display the first state's data.
-    updateView();
+// Wait for Pyodide to be available before accessing globals.
+(async () => {
+  // First, poll until 'pyodide' is defined.
+  while (typeof pyodide === "undefined") {
+    await new Promise(resolve => setTimeout(resolve, 100));
   }
+  // Next, poll until the Python global 'state_list' is set.
+  let states = null;
+  while (!(states = pyodide.globals.get("state_list"))) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  states = states.toJs();
+  const dropdown = document.getElementById("state-dropdown");
+  states.forEach(s => {
+    const opt = document.createElement("option");
+    opt.value = s;
+    opt.textContent = s;
+    dropdown.appendChild(opt);
+  });
+  updateView();
+})();
 
-  // This function calls the Python function to update the table and map.
-  async function updateView() {
-    const state = document.getElementById("state-dropdown").value;
-    // Get the Python function from the Pyodide globals.
-    const pyFunc = window.pyodide.globals.get("get_top_20_by_state");
-    // Call the Python function and convert the returned tuple to a JS array.
-    let [tableHtml, mapHtml] = await pyFunc(state).toJs();
-    document.getElementById("table").innerHTML = tableHtml;
-    document.getElementById("map").innerHTML = mapHtml;
-  }
+async function updateView() {
+  const state = document.getElementById("state-dropdown").value;
+  const pyFunc = pyodide.globals.get("get_top_20_by_state");
+  let [tableHtml, mapHtml] = await pyFunc(state).toJs();
+  document.getElementById("table").innerHTML = tableHtml;
+  document.getElementById("map").innerHTML = mapHtml;
+}
 </script>
-
-<!-- The PyScript block: load the CSV and then call populateDropdown in JS -->
-<py-script>
-import pandas as pd
-import plotly.express as px
-import plotly.io as pio
-from pyodide.http import pyfetch
-import io
-import asyncio
-
-# Global variables for use within Python.
-df = None
-state_list = None
-
-async def load_csv():
-    response = await pyfetch("state_exp_by_ports_and_countries.csv")
-    csv_text = await response.string()
-    return pd.read_csv(io.StringIO(csv_text))
-
-def get_top_20_by_state(state):
-    # Filter the dataframe on the chosen state.
-    subset = df[df["State"] == state]
-    grouped = subset.groupby("Country", as_index=False).agg({"AM24_INR": "sum", "AM24_USD": "sum"})
-    top_20 = grouped.sort_values("AM24_USD", ascending=False).head(20)
-    table_html = top_20.to_html(index=False)
-    fig = px.scatter_geo(
-        top_20,
-        locations="Country",
-        locationmode="country names",
-        hover_name="Country",
-        size="AM24_USD",
-        color="AM24_USD",
-        projection="natural earth",
-        title=f"Top 20 Destinations from {state}"
-    )
-    map_html = pio.to_html(fig, full_html=False, include_plotlyjs="cdn")
-    return table_html, map_html
-
-async def main():
-    global df, state_list
-    try:
-        df = await load_csv()
-        # Clean up column names to remove any extra whitespace.
-        df.columns = df.columns.str.strip()
-        print("CSV loaded successfully. DataFrame head:")
-        print(df.head())
-        state_list = sorted(df["State"].unique())
-        print("State list:", state_list)
-        # Import and call the JS function to populate the dropdown.
-        from js import populateDropdown
-        populateDropdown(state_list)
-    except Exception as e:
-        print("Error in main:", e)
-
-# Schedule the main coroutine.
-asyncio.ensure_future(main())
-</py-script>
 
 </body>
 </html>
