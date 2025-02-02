@@ -52,7 +52,7 @@ async def load_csv():
 
 def get_top_20_by_state(state):
     # Use the cleaned column names.
-    subset = df[df["State "] == state]
+    subset = df[df["State"] == state]
     grouped = subset.groupby("Country", as_index=False).agg({"AM24_INR": "sum", "AM24_USD": "sum"})
     top_20 = grouped.sort_values("AM24_USD", ascending=False).head(20)
     table_html = top_20.to_html(index=False)
@@ -78,7 +78,7 @@ async def main():
         df.columns = df.columns.str.strip()
         print("CSV loaded successfully. DataFrame head:")
         print(df.head())
-        state_list = sorted(df["State "].unique())
+        state_list = sorted(df["State"].unique())
         print("State list:", state_list)
     except Exception as e:
         print("Error in main:", e)
