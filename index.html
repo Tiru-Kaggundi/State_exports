@@ -8,7 +8,6 @@
   <link rel="stylesheet" href="https://pyscript.net/releases/2022.12.1/pyscript.css" crossorigin="anonymous" />
   <script defer src="https://pyscript.net/releases/2022.12.1/pyscript.js" crossorigin="anonymous"></script>
 
-  <!-- (Optional) Basic styling -->
   <style>
     body {
       font-family: sans-serif;
@@ -42,7 +41,7 @@ from pyodide.http import pyfetch
 import io
 import asyncio
 
-# Global variables that will be updated by our async code.
+# Global variables for later access from JavaScript.
 df = None
 state_list = None
 
@@ -52,11 +51,9 @@ async def load_csv():
     return pd.read_csv(io.StringIO(csv_text))
 
 def get_top_20_by_state(state):
+    # Use the cleaned column names.
     subset = df[df["State "] == state]
-    grouped = (
-        subset.groupby("Country", as_index=False)
-        .agg({"AM24_INR": "sum", "AM24_USD": "sum"})
-    )
+    grouped = subset.groupby("Country", as_index=False).agg({"AM24_INR": "sum", "AM24_USD": "sum"})
     top_20 = grouped.sort_values("AM24_USD", ascending=False).head(20)
     table_html = top_20.to_html(index=False)
 
@@ -75,10 +72,18 @@ def get_top_20_by_state(state):
 
 async def main():
     global df, state_list
-    df = await load_csv()
-    state_list = sorted(df["State "].unique())
+    try:
+        df = await load_csv()
+        # Strip whitespace from all column names to avoid header issues.
+        df.columns = df.columns.str.strip()
+        print("CSV loaded successfully. DataFrame head:")
+        print(df.head())
+        state_list = sorted(df["State "].unique())
+        print("State list:", state_list)
+    except Exception as e:
+        print("Error in main:", e)
 
-# Schedule the main() coroutine so that it runs asynchronously.
+# Schedule the main() coroutine.
 asyncio.ensure_future(main())
 </py-script>
 
@@ -87,10 +92,9 @@ asyncio.ensure_future(main())
 <div id="map"></div>
 
 <script>
-// Wait for PyScript to be ready.
 window.addEventListener("pyready", async () => {
   let states = null;
-  // Poll every 100ms until 'state_list' is available.
+  // Poll until the Python variable "state_list" is available.
   while ((states = pyodide.globals.get("state_list")) === null) {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
