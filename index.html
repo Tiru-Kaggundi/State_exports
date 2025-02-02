@@ -29,15 +29,17 @@
 
 <h2>Exports Dashboard</h2>
 
-<!-- We no longer use the <py-config> block because we install packages manually -->
+<!-- No <py-config> block here as we install packages manually -->
 <py-script>
 import asyncio
 import micropip
 
 async def main():
-    # Install required packages
+    print("Python: Starting package installation...")
+    # Install required packages.
     await micropip.install("pandas")
     await micropip.install("plotly")
+    print("Python: Package installation complete.")
     
     import pandas as pd
     import plotly.express as px
@@ -49,17 +51,19 @@ async def main():
     global df, state_list, get_top_20_by_state
 
     async def load_csv():
+        print("Python: Fetching CSV file...")
         response = await pyfetch("state_exp_by_ports_and_countries.csv")
         csv_text = await response.string()
         return pd.read_csv(io.StringIO(csv_text))
     
     df = await load_csv()
-    # Clean up column names to avoid whitespace issues.
+    # Clean up column names.
     df.columns = df.columns.str.strip()
     state_list_local = sorted(df["State"].unique())
-    
-    # Explicitly export state_list so that JavaScript can access it.
     globals()["state_list"] = state_list_local
+    print("Python: CSV loaded successfully. DataFrame head:")
+    print(df.head())
+    print("Python: Exported state_list:", state_list_local)
 
     def get_top_20_by_state(state):
         subset = df[df["State"] == state]
@@ -79,15 +83,10 @@ async def main():
         )
         map_html = pio.to_html(fig, full_html=False, include_plotlyjs="cdn")
         return table_html, map_html
-    
-    # Export the function to the global namespace.
-    globals()["get_top_20_by_state"] = get_top_20_by_state
-    
-    print("CSV loaded successfully. DataFrame head:")
-    print(df.head())
-    print("State list:", state_list_local)
 
-# Schedule the main() coroutine.
+    globals()["get_top_20_by_state"] = get_top_20_by_state
+    print("Python: get_top_20_by_state function exported.")
+
 asyncio.ensure_future(main())
 </py-script>
 
@@ -97,36 +96,50 @@ asyncio.ensure_future(main())
 
 <script>
 (async () => {
-  // First, wait until the Pyodide runtime is available.
+  console.log("JS: Waiting for pyodide...");
+  // Wait until the Pyodide runtime is available.
   while (typeof pyodide === "undefined") {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
-  // Next, wait until the Python variable 'state_list' is defined.
+  console.log("JS: pyodide is available.");
+
+  // Poll until the Python global 'state_list' is defined.
   let states;
   while (true) {
     try {
       states = pyodide.globals.get("state_list");
       if (states) break;
-    } catch(e) {
-      // Ignore any errors while polling.
+    } catch (e) {
+      console.log("JS: Error retrieving state_list:", e);
     }
     await new Promise(resolve => setTimeout(resolve, 100));
   }
+  console.log("JS: Retrieved state_list from Python:", states);
   states = states.toJs();
+  console.log("JS: Converted state_list to JS array:", states);
+  
   const dropdown = document.getElementById("state-dropdown");
+  // Clear any existing options (for debugging).
+  dropdown.innerHTML = "";
   states.forEach(s => {
     const opt = document.createElement("option");
     opt.value = s;
     opt.textContent = s;
     dropdown.appendChild(opt);
   });
+  console.log("JS: Dropdown populated. Options count:", dropdown.options.length);
+  if(dropdown.options.length > 0) {
+    dropdown.selectedIndex = 0;
+  }
   updateView();
 })();
 
 async function updateView() {
   const state = document.getElementById("state-dropdown").value;
+  console.log("JS: updateView called with state:", state);
   const pyFunc = pyodide.globals.get("get_top_20_by_state");
   let [tableHtml, mapHtml] = await pyFunc(state).toJs();
+  console.log("JS: Received table and map HTML from Python.");
   document.getElementById("table").innerHTML = tableHtml;
   document.getElementById("map").innerHTML = mapHtml;
 }
